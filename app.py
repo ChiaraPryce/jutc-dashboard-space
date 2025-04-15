@@ -4,15 +4,28 @@
 # In[49]:
 
 
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import gradio as gr
 from matplotlib.ticker import MaxNLocator
 
-############################################
-# CUSTOM CSS
-############################################
+
+try:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    # __file__ not defined in interactive sessions
+    BASE_DIR = os.getcwd()
+
+routes_path = os.path.join(BASE_DIR, "JUTC Depot Routes.xlsx")
+fuel_path   = os.path.join(BASE_DIR, "JUTC Fuel Types 2 .xlsx")
+
+
+routes_data = pd.read_excel(routes_path)
+fuel_data   = pd.read_excel(fuel_path)
+
+#CSS
 custom_css = """
 body, .gradio-container {
   background-color: #F5F5F5 !important;
@@ -106,12 +119,9 @@ button:hover {
 }
 """
 
-############################################
-# PART 1: DEPOT ROUTES DATA & PLOTS
-############################################
-
-# Load & clean
-routes_data = pd.read_excel("/Users/chiarapryce/Downloads/JUTC Depot Routes.xlsx")
+# ——————————————————————————————
+# PART 1: DEPOT ROUTES DATA CLEANING & METRICS
+# ——————————————————————————————
 routes_data.columns = (
     routes_data.columns
       .str.strip()
@@ -124,14 +134,15 @@ routes_data['fare'] = (
       .pipe(pd.to_numeric, errors="coerce")
 )
 
-# Key metrics
 most_expensive    = routes_data.loc[routes_data['fare'].idxmax()]
 shortest_distance = routes_data.loc[routes_data['distance (km)'].idxmin()]
 longest_distance  = routes_data.loc[routes_data['distance (km)'].idxmax()]
 most_buses        = routes_data.loc[routes_data['buses available'].idxmax()]
 least_buses       = routes_data.loc[routes_data['buses available'].idxmin()]
 
-# Plot functions
+# ——————————————————————————————
+# PART 1: DEPOT ROUTES PLOT FUNCTIONS
+# ——————————————————————————————
 def plot_fare_bar():
     fig, ax = plt.subplots(figsize=(12,6))
     ax.bar(routes_data['routes'], routes_data['fare'], color='skyblue')
@@ -199,28 +210,40 @@ def get_route_details(route_name: str):
         f"<b>Buses Available:</b> {row['buses available']}"
     )
 
-############################################
-# PART 2: FUEL TYPES DATA & PLOTS
-############################################
-
-fuel_data = pd.read_excel("/Users/chiarapryce/Downloads/JUTC Fuel Types 2 .xlsx")
+# ——————————————————————————————
+# PART 2: FUEL TYPES DATA CLEANING & METRICS
+# ——————————————————————————————
 fuel_data.columns = fuel_data.columns.str.strip().str.lower()
 fuel_data['fuel type'] = fuel_data['fuel type'].str.upper()
 
+ev_counts     = fuel_data.loc[fuel_data['fuel type']=='ELECTRIC','route'].value_counts()
+cng_counts    = fuel_data.loc[fuel_data['fuel type']=='CNG','route'].value_counts()
+diesel_counts = fuel_data.loc[fuel_data['fuel type']=='DIESEL','route'].value_counts()
+
+route_most_ev     = ev_counts.idxmax()     if not ev_counts.empty    else "N/A"
+ev_count          = ev_counts.max()        if not ev_counts.empty    else 0
+route_most_cng    = cng_counts.idxmax()    if not cng_counts.empty   else "N/A"
+cng_count         = cng_counts.max()       if not cng_counts.empty   else 0
+route_most_diesel = diesel_counts.idxmax() if not diesel_counts.empty else "N/A"
+diesel_count      = diesel_counts.max()    if not diesel_counts.empty else 0
+
+depot_counts = fuel_data.groupby(['fuel type','depot']).size().reset_index(name='count')
+
+# ——————————————————————————————
+# PART 2: FUEL TYPES PLOT FUNCTIONS
+# ——————————————————————————————
 def plot_ev_pie():
-    counts = fuel_data.loc[fuel_data['fuel type']=='ELECTRIC','route'].value_counts()
-    if counts.empty: return None
+    if ev_counts.empty: return None
     fig, ax = plt.subplots(figsize=(6,6))
-    ax.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
+    ax.pie(ev_counts, labels=ev_counts.index, autopct='%1.1f%%', startangle=140)
     ax.set_title('Electric Buses by Route')
     fig.tight_layout()
     return fig
 
 def plot_cng_bar():
-    counts = fuel_data.loc[fuel_data['fuel type']=='CNG','route'].value_counts()
-    if counts.empty: return None
+    if cng_counts.empty: return None
     fig, ax = plt.subplots(figsize=(10,6))
-    ax.bar(counts.index, counts.values, color='coral')
+    ax.bar(cng_counts.index, cng_counts.values, color='coral')
     ax.set_title('Number of CNG Buses by Route')
     ax.set_xlabel('Route'); ax.set_ylabel('Count')
     ax.tick_params(axis='x', rotation=45)
@@ -228,22 +251,21 @@ def plot_cng_bar():
     return fig
 
 def plot_diesel_stem():
-    counts = fuel_data.loc[fuel_data['fuel type']=='DIESEL','route'].value_counts()
-    if counts.empty: return None
+    if diesel_counts.empty: return None
     fig, ax = plt.subplots(figsize=(6,6))
-    m, s, b = ax.stem(range(len(counts)), counts.values)
+    m, s, b = ax.stem(range(len(diesel_counts)), diesel_counts.values)
     plt.setp(m, 'markerfacecolor', 'green')
     ax.set_title('Diesel Buses by Route')
-    ax.set_xticks(range(len(counts)))
-    ax.set_xticklabels(counts.index, rotation=45, ha='right')
+    ax.set_xticks(range(len(diesel_counts)))
+    ax.set_xticklabels(diesel_counts.index, rotation=45, ha='right')
     fig.tight_layout()
     return fig
 
 def plot_ev_depot():
-    df = fuel_data[fuel_data['fuel type']=='ELECTRIC'].groupby('depot').size()
+    df = depot_counts[depot_counts['fuel type']=='ELECTRIC']
     if df.empty: return None
     fig, ax = plt.subplots(figsize=(8,6))
-    ax.bar(df.index, df.values, color='skyblue')
+    ax.bar(df['depot'], df['count'], color='skyblue')
     ax.set_title('Electric Buses by Depot')
     ax.set_xlabel('Depot'); ax.set_ylabel('Count')
     ax.tick_params(axis='x', rotation=45)
@@ -251,30 +273,28 @@ def plot_ev_depot():
     return fig
 
 def plot_cng_depot():
-    df = fuel_data[fuel_data['fuel type']=='CNG'].groupby('depot').size()
+    df = depot_counts[depot_counts['fuel type']=='CNG']
     if df.empty: return None
     fig, ax = plt.subplots(figsize=(8,6))
-    ax.pie(df.values, labels=df.index, autopct='%1.1f%%', startangle=140)
+    ax.pie(df['count'], labels=df['depot'], autopct='%1.1f%%', startangle=140)
     ax.set_title('CNG Buses by Depot')
     fig.tight_layout()
     return fig
 
 def plot_diesel_depot():
-    df = fuel_data[fuel_data['fuel type']=='DIESEL'].groupby('depot').size()
+    df = depot_counts[depot_counts['fuel type']=='DIESEL']
     if df.empty: return None
     fig, ax = plt.subplots(figsize=(8,6))
-    ax.barh(df.index, df.values, color='salmon')
+    ax.barh(df['depot'], df['count'], color='salmon')
     ax.set_title('Diesel Buses by Depot')
     ax.set_xlabel('Count'); ax.set_ylabel('Depot')
     fig.tight_layout()
     return fig
 
-############################################
-# BUILD THE DASHBOARD
-############################################
-
+# ——————————————————————————————
+# BUILD THE GRADIO DASHBOARD UI
+# ——————————————————————————————
 with gr.Blocks(css=custom_css, title="JUTC Advanced Transit Analytics Dashboard") as demo:
-    # Header
     gr.HTML("""
       <div class="header" style="padding:16px;background:#FFDC00;">
         <h1>JUTC Advanced Transit Analytics Dashboard</h1>
@@ -305,27 +325,17 @@ with gr.Blocks(css=custom_css, title="JUTC Advanced Transit Analytics Dashboard"
       </div>
     </div>
     """)
-
     with gr.Tabs():
-        # Depot Routes
         with gr.Tab("Depot Routes"):
             with gr.Accordion("View Routes Plots", open=False):
                 gr.HTML('<div class="charts-grid">')
-                p1 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Fare Bar Chart").click(plot_fare_bar, outputs=p1)
-                p2 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Fare Histogram").click(plot_fare_hist, outputs=p2)
-                p3 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Distance Bar Chart").click(plot_distance_bar, outputs=p3)
-                p4 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Distance Histogram").click(plot_distance_hist, outputs=p4)
-                p5 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Fare Scatter").click(plot_scatter_fare, outputs=p5)
-                p6 = gr.Plot(elem_classes="chart-card")
-                gr.Button("Sorted Distance Line").click(plot_line_sorted_distance, outputs=p6)
+                p1 = gr.Plot(elem_classes="chart-card"); gr.Button("Fare Bar Chart").click(plot_fare_bar, outputs=p1)
+                p2 = gr.Plot(elem_classes="chart-card"); gr.Button("Fare Histogram").click(plot_fare_hist, outputs=p2)
+                p3 = gr.Plot(elem_classes="chart-card"); gr.Button("Distance Bar Chart").click(plot_distance_bar, outputs=p3)
+                p4 = gr.Plot(elem_classes="chart-card"); gr.Button("Distance Histogram").click(plot_distance_hist, outputs=p4)
+                p5 = gr.Plot(elem_classes="chart-card"); gr.Button("Fare Scatter").click(plot_scatter_fare, outputs=p5)
+                p6 = gr.Plot(elem_classes="chart-card"); gr.Button("Sorted Distance Line").click(plot_line_sorted_distance, outputs=p6)
                 gr.HTML('</div>')
-
-        # Fuel Types
         with gr.Tab("Fuel Types"):
             gr.HTML(f"""
             <div class="metrics">
@@ -345,36 +355,27 @@ with gr.Blocks(css=custom_css, title="JUTC Advanced Transit Analytics Dashboard"
             """)
             with gr.Accordion("Electric Bus Visualizations", open=False):
                 gr.HTML('<div class="charts-grid">')
-                ev_plot = gr.Plot(elem_classes="chart-card")
-                gr.Button("EV Pie Chart").click(plot_ev_pie, outputs=ev_plot)
+                evp = gr.Plot(elem_classes="chart-card"); gr.Button("EV Pie Chart").click(plot_ev_pie, outputs=evp)
                 gr.HTML('</div>')
             with gr.Accordion("CNG Bus Visualizations", open=False):
                 gr.HTML('<div class="charts-grid">')
-                cng_plot = gr.Plot(elem_classes="chart-card")
-                gr.Button("CNG Bar Chart").click(plot_cng_bar, outputs=cng_plot)
+                cnb = gr.Plot(elem_classes="chart-card"); gr.Button("CNG Bar Chart").click(plot_cng_bar, outputs=cnb)
                 gr.HTML('</div>')
             with gr.Accordion("Diesel Bus Visualizations", open=False):
                 gr.HTML('<div class="charts-grid">')
-                diesel_plot = gr.Plot(elem_classes="chart-card")
-                gr.Button("Diesel Stem Plot").click(plot_diesel_stem, outputs=diesel_plot)
+                dst = gr.Plot(elem_classes="chart-card"); gr.Button("Diesel Stem Plot").click(plot_diesel_stem, outputs=dst)
                 gr.HTML('</div>')
             with gr.Accordion("Depot by Fuel Visualizations", open=False):
                 gr.HTML('<div class="charts-grid">')
-                evd = gr.Plot(elem_classes="chart-card")
-                gr.Button("EV Depot Chart").click(plot_ev_depot, outputs=evd)
-                cngd = gr.Plot(elem_classes="chart-card")
-                gr.Button("CNG Depot Pie").click(plot_cng_depot, outputs=cngd)
-                dd = gr.Plot(elem_classes="chart-card")
-                gr.Button("Diesel Depot Chart").click(plot_diesel_depot, outputs=dd)
+                evd = gr.Plot(elem_classes="chart-card"); gr.Button("EV Depot Chart").click(plot_ev_depot, outputs=evd)
+                cnd = gr.Plot(elem_classes="chart-card"); gr.Button("CNG Depot Pie").click(plot_cng_depot, outputs=cnd)
+                dsd = gr.Plot(elem_classes="chart-card"); gr.Button("Diesel Depot Chart").click(plot_diesel_depot, outputs=dsd)
                 gr.HTML('</div>')
-
-        # Route Query
         with gr.Tab("Route Query"):
             gr.Markdown("### Query a Route")
-            inp = gr.Textbox(label="Route Name", placeholder="e.g. Route 101")
+            inp = gr.Textbox(label="Route Name", placeholder="e.g. Route 101")
             out = gr.HTML()
             gr.Button("Get Details").click(fn=get_route_details, inputs=inp, outputs=out)
-
     demo.launch(share=True)
 
 
